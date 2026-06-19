@@ -1,0 +1,88 @@
+import os
+import cv2
+import numpy as np
+import argparse
+from tqdm import tqdm
+
+
+def compute_mse_loss_all(pred, target):
+    # 全图均方误差
+    error_map = (pred - target) / 255.0
+    loss = np.mean(error_map ** 2)
+    return loss
+
+
+def compute_sad_loss_all(pred, target):
+    # 全图 SAD（Absolute Difference 总和）
+    error_map = np.abs((pred - target) / 255.0)
+    loss = np.sum(error_map) / 1000
+    return loss
+
+
+def compute_mae_loss_all(pred, target):
+    # 全图平均绝对误差
+    error_map = np.abs((pred - target) / 255.0)
+    loss = np.mean(error_map)
+    return loss
+
+
+def evaluate(args):
+    img_names = []
+    mse_loss_all = []
+    sad_loss_all = []
+    mae_loss_all = []
+
+    for i, img in tqdm(enumerate(os.listdir(args.label_dir))):
+
+        # 跳过预测图或标签图缺失的样本
+        if not (
+            os.path.isfile(os.path.join(args.pred_dir, img)) and
+            os.path.isfile(os.path.join(args.label_dir, img))
+        ):
+            continue
+
+        pred = cv2.imread(
+            os.path.join(args.pred_dir, img), 0
+        ).astype(np.float32)
+
+        label = cv2.imread(
+            os.path.join(args.label_dir, img), 0
+        ).astype(np.float32)
+
+        # 计算当前图像的评测指标
+        mse_loss_all_ = compute_mse_loss_all(pred, label)
+        sad_loss_all_ = compute_sad_loss_all(pred, label)
+        mae_loss_all_ = compute_mae_loss_all(pred, label)
+
+        # 保存结果用于统计平均值
+        img_names.append(img)
+        mse_loss_all.append(mse_loss_all_)
+        sad_loss_all.append(sad_loss_all_)
+        mae_loss_all.append(mae_loss_all_)
+
+    # 输出整个测试集的平均结果
+    print(f"\n全图评测完成! (共 {len(img_names)} 张图)")
+    print(f'* Whole Image Region:')
+    print(f'- SAD_all: {np.array(sad_loss_all).mean():.4f}')
+    print(f'- MSE_all: {np.array(mse_loss_all).mean():.6f}')
+    print(f'- MAE_all: {np.array(mae_loss_all).mean():.6f}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--pred-dir',
+        type=str,
+        required=True,
+        help='预测 Alpha 路径'
+    )
+
+    parser.add_argument(
+        '--label-dir',
+        type=str,
+        default='',
+        help='GT Alpha 路径'
+    )
+    args = parser.parse_args()
+evaluate(args)
