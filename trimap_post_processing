@@ -1,0 +1,56 @@
+import cv2
+import numpy as np
+import os
+from tqdm import tqdm
+
+def trimap_assisted_refinement(alpha_img, trimap_img):
+    """
+    利用Trimap提供的认知先验，对模型的初步预测结果进行后处理精修。
+    主要解决Matting Anything等模型存在的“前景半透明（不自信）”、“粘连背景”以及“错误填充内部孔洞”的问题。
+    """
+    # 创建一个副本，避免直接修改原图
+    refined_alpha = alpha_img.copy()
+    
+    # 1. 清理绝对背景区域（Trimap == 0）
+    # 这一步直接将远处的杂草、背景以及原本被模型误填死的植物内部孔洞强制归零
+    refined_alpha[trimap_img == 0] = 0
+    
+    # 2. 巩固绝对前景区域（Trimap == 255）
+    # 这一步针对模型预测不自信导致的“前景半透明”现象，强制将目标植物主干的 Alpha 拉满
+    refined_alpha[trimap_img == 255] = 255
+    
+    # 3. 未知过渡区域（Trimap == 128）保持不变
+    # 考虑到模型在局部高频细节（如半透明边缘、细小绒毛）上仍有不错的特征感知能力，
+    # 因此对边界过渡区域完全信任，保留模型原本预测的渐变 Alpha 值
+    
+    return refined_alpha
+
+# --- 批量测试集处理逻辑 ---
+pred_dir = 'mam_testresult'  # Matting Anything (或 ZIM) 的原始预测图存放路径
+trimap_dir = '/content/drive/MyDrive/Vision_Cognitive_Engineering_Matting/Matting-Anything-main/testdata/trimap_resize'  # 提前生成的 Trimap 图像路径
+output_dir = 'AFP_Matting_Anything3'  # 后处理精修结果的输出路径
+
+# 如果输出文件夹不存在则自动创建
+os.makedirs(output_dir, exist_ok=True)
+
+# 遍历预测文件夹中的所有图片
+for img_name in tqdm(os.listdir(pred_dir)):
+    alpha_path = os.path.join(pred_dir, img_name)
+    trimap_path = os.path.join(trimap_dir, img_name)
+    
+    # 确保预测图和对应的 Trimap 匹配且均存在
+    if os.path.exists(alpha_path) and os.path.exists(trimap_path):
+        # 以单通道灰度图模式读取
+        alpha = cv2.imread(alpha_path, cv2.IMREAD_GRAYSCALE)
+        trimap = cv2.imread(trimap_path, cv2.IMREAD_GRAYSCALE)
+        
+        # 统一尺寸，防止输入大小不一致导致报错 
+        # (采用最近邻插值 cv2.INTER_NEAREST，以免破坏 Trimap 中原有的 0/128/255 离散值)
+        if alpha.shape != trimap.shape:
+            trimap = cv2.resize(trimap, (alpha.shape[1], alpha.shape[0]), interpolation=cv2.INTER_NEAREST)
+            
+        # 调用函数执行后处理精修
+        refined = trimap_assisted_refinement(alpha, trimap)
+        
+        # 保存精修后的预测结果
+        cv2.imwrite(os.path.join(output_dir, img_name), refined)
