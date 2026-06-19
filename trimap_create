@@ -1,0 +1,46 @@
+import os
+import cv2
+import numpy as np
+from tqdm import notebook
+
+base_dir = '/content/drive/MyDrive/Vision_Cognitive_Engineering_Matting/ViTMatte-main/testdata'
+alpha_dir = os.path.join(base_dir, 'alpha_resize')
+trimap_dir = os.path.join(base_dir, 'trimap_resize')
+
+if not os.path.exists(trimap_dir):
+    os.makedirs(trimap_dir)
+
+# 使用较小结构元素生成 trimap
+kernel_size = 5
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+
+alpha_files = [
+    f for f in os.listdir(alpha_dir)
+    if f.endswith(('.png', '.jpg', '.jpeg'))
+]
+
+for file_name in notebook.tqdm(alpha_files):
+
+    alpha_path = os.path.join(alpha_dir, file_name)
+    trimap_path = os.path.join(trimap_dir, file_name)
+
+    alpha = cv2.imread(alpha_path, cv2.IMREAD_GRAYSCALE)
+    if alpha is None:
+        continue
+
+    # 提取确定前景区域
+    strict_fg = (alpha > 245).astype(np.uint8) * 255
+    eroded_fg = cv2.erode(strict_fg, kernel)
+
+    # 提取确定背景区域
+    strict_bg = (alpha < 10).astype(np.uint8) * 255
+    eroded_bg = cv2.erode(strict_bg, kernel)
+
+    # 初始化未知区域
+    trimap = np.full_like(alpha, 128)
+
+    # 标记背景和前景
+    trimap[eroded_bg == 255] = 0
+    trimap[eroded_fg == 255] = 255
+
+cv2.imwrite(trimap_path, trimap)
